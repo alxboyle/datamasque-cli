@@ -146,6 +146,23 @@ dm libraries validate <name>                      # Re-validate against current 
 dm libraries usage <name>                         # Show rulesets using it
 ```
 
+### In-flight masking
+
+```console
+dm ifm list                                           # List IFM endpoints
+dm ifm get <name>                                     # Show endpoint details
+dm ifm get <name> --yaml                              # Print ruleset YAML only
+dm ifm create --name <base> --file ruleset.yaml       # Create (server appends -XXXXXX)
+dm ifm create --name <base> -f r.yaml --disabled \
+    --encoding base64 --log-level DEBUG               # With option overrides
+dm ifm update <name> --file newrules.yaml             # Replace ruleset YAML
+dm ifm update <name> --disabled --log-level DEBUG     # Change options
+dm ifm delete <name> --yes                            # Delete (prompts unless --yes)
+```
+
+Names shown in `dm ifm list` include the server-assigned `-XXXXXX` suffix;
+always pass the full stored name to `get`, `update`, and `delete`.
+
 ### Masking runs
 
 ```console
