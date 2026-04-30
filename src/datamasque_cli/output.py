@@ -60,7 +60,9 @@ def print_table(
 ) -> None:
     table = Table(title=title, show_header=True, header_style="bold cyan")
     for col in columns:
-        table.add_column(col)
+        # overflow="fold" wraps long values (e.g. UUIDs) onto multiple lines
+        # rather than silently ellipsizing them, so IDs stay copyable in narrow terminals.
+        table.add_column(col, overflow="fold")
     for row in rows:
         table.add_row(*[str(v) if v is not None else "" for v in row])
     stdout_console.print(table)
@@ -70,7 +72,7 @@ def print_kv(data: dict[str, Any], title: str | None = None) -> None:
     """Print key-value pairs as a two-column table."""
     table = Table(title=title, show_header=False, show_edge=False, padding=(0, 2))
     table.add_column("Key", style="bold")
-    table.add_column("Value")
+    table.add_column("Value", overflow="fold")
     for key, value in data.items():
         table.add_row(key, str(value) if value is not None else "")
     stdout_console.print(table)

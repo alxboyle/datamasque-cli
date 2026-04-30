@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from datamasque_cli.output import abort, print_json, redact_sensitive_fields, render_output
+from datamasque_cli.output import abort, print_json, print_table, redact_sensitive_fields, render_output
 
 
 def test_print_json_outputs_indented(capsys: pytest.CaptureFixture[str]) -> None:
@@ -72,3 +72,20 @@ def test_redact_sensitive_fields_is_case_insensitive() -> None:
     out = redact_sensitive_fields({"PASSWORD": "s3cret", "DB_Password": "t0p"})
     assert out["PASSWORD"] == "<redacted>"
     assert out["DB_Password"] == "<redacted>"
+
+
+def test_print_table_does_not_truncate_long_ids_in_narrow_terminal(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Force a narrow console so Rich would have to compress columns.
+    monkeypatch.setenv("COLUMNS", "80")
+    uuid = "529ed6f4-77b8-47be-9afb-0dffe6dbb9ef"
+    print_table(
+        ["id", "name", "type"],
+        [[uuid, "db_postgres_long_name_here", "Database"]],
+    )
+    out = capsys.readouterr().out
+    # UUID must be present in full (with no ellipsis truncation) — possibly folded across lines.
+    flattened = out.replace("\n", "").replace(" ", "").replace("│", "").replace("┃", "")
+    assert uuid in flattened
+    assert "…" not in out
