@@ -39,13 +39,13 @@ In [Claude Code](https://claude.com/claude-code), add this repo as a plugin mark
 If you're editing these skills in-repo and want Claude Code to pick up changes without reinstalling, symlink each directory into `~/.claude/skills/`:
 
 ```bash
-ln -sfn ~/repos/datamasque-cli/claude-skills/datamasque-cli \
+ln -sfn ~/repos/datamasque-cli/claude-skills/datamasque-cli/skills/datamasque-cli \
   ~/.claude/skills/datamasque-cli
 
-ln -sfn ~/repos/datamasque-cli/claude-skills/ruleset-builder \
+ln -sfn ~/repos/datamasque-cli/claude-skills/ruleset-builder/skills/ruleset-builder \
   ~/.claude/skills/ruleset-builder
 
-ln -sfn ~/repos/datamasque-cli/claude-skills/ruleset-splitter \
+ln -sfn ~/repos/datamasque-cli/claude-skills/ruleset-splitter/skills/ruleset-splitter \
   ~/.claude/skills/ruleset-splitter
 ```
 

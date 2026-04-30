@@ -1,0 +1,9 @@
+{
+  "name": "ruleset-builder",
+  "version": "1.0.0",
+  "description": "Convert auto-generated DataMasque rulesets into production-ready form. Validate and iterate.",
+  "author": { "name": "DataMasque Ltd" },
+  "repository": "https://github.com/datamasque/datamasque-cli",
+  "license": "Apache-2.0",
+  "keywords": ["datamasque", "ruleset", "yaml"]
+}
