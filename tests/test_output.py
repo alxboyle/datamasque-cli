@@ -5,6 +5,7 @@ import json
 import pytest
 
 from datamasque_cli.output import (
+    EXIT_CODES,
     abort,
     is_agent_context,
     print_json,
@@ -138,7 +139,7 @@ def test_abort_emits_structured_envelope_in_agent_mode(
     monkeypatch.setenv("DM_OUTPUT", "json")
     with pytest.raises(SystemExit) as exc_info:
         abort("Connection 'foo' not found.", code="not_found", hint="Run dm connections list.")
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 3  # not_found exit code
     captured = capsys.readouterr()
     payload = json.loads(captured.err)
     assert payload == {
@@ -162,6 +163,45 @@ def test_abort_human_mode_prints_red_error(
     assert "nope" in captured.err
     # In human mode we don't dump JSON.
     assert "{" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("code", "expected_exit"),
+    [
+        ("error", 1),
+        ("not_found", 3),
+        ("invalid_input", 4),
+        ("ambiguous", 5),
+        ("auth_required", 6),
+        ("auth_failed", 7),
+        ("conflict", 8),
+        ("transport_error", 9),
+    ],
+)
+def test_abort_maps_code_to_documented_exit_code(code: str, expected_exit: int) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        abort("...", code=code)
+    assert exc_info.value.code == expected_exit
+
+
+def test_abort_unknown_code_falls_back_to_one() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        abort("...", code="some_code_we_have_not_added_yet")
+    assert exc_info.value.code == 1
+
+
+def test_exit_code_table_matches_documented_set() -> None:
+    # Guard: README documents these. If the table changes, the docs must too.
+    assert set(EXIT_CODES.keys()) == {
+        "error",
+        "not_found",
+        "invalid_input",
+        "ambiguous",
+        "auth_required",
+        "auth_failed",
+        "conflict",
+        "transport_error",
+    }
 
 
 def test_print_success_suppressed_in_agent_mode(

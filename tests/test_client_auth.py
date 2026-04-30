@@ -43,7 +43,7 @@ def test_get_client_aborts_on_auth_failure(
 
     with pytest.raises(SystemExit) as exc_info:
         get_client()
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 7  # auth_failed
 
 
 @pytest.mark.parametrize(

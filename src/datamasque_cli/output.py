@@ -44,6 +44,22 @@ _SENSITIVE_FIELD_SUBSTRINGS = ("password", "secret", "token", "key", "credential
 _REDACTED = "<redacted>"
 
 
+# Exit-code taxonomy for `abort()`. Stable across minor versions — agents can
+# branch on these to decide whether to retry, prompt the user, or give up.
+# `2` is intentionally skipped because typer/click already uses it for CLI
+# usage errors (unknown flag, missing required arg).
+EXIT_CODES: dict[str, int] = {
+    "error": 1,
+    "not_found": 3,
+    "invalid_input": 4,
+    "ambiguous": 5,
+    "auth_required": 6,
+    "auth_failed": 7,
+    "conflict": 8,
+    "transport_error": 9,
+}
+
+
 def redact_sensitive_fields(data: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of `data` with values of sensitive-named keys replaced by `<redacted>`.
 
@@ -174,15 +190,16 @@ def render_output(
 
 
 def abort(message: str, *, code: str = "error", hint: str | None = None) -> NoReturn:
-    """Print an error and exit with status 1.
+    """Print an error and exit with the exit code mapped to `code`.
 
     In agent mode, emits a structured error envelope to stderr:
         {"error": {"code": "...", "message": "...", "hint": "..."}}
     In human mode, prints a red 'Error: …' line plus an optional hint.
 
     `code` is a stable, machine-readable identifier (e.g. `not_found`,
-    `invalid_input`, `auth_required`). Phase 3 will add differentiated
-    exit codes; for now everything exits 1.
+    `invalid_input`). Exit code is looked up in `EXIT_CODES`; unknown
+    codes fall back to 1 so callers can introduce new categories
+    incrementally without changing the contract.
     """
     if is_agent_context():
         envelope: dict[str, Any] = {"error": {"code": code, "message": message}}
@@ -193,4 +210,4 @@ def abort(message: str, *, code: str = "error", hint: str | None = None) -> NoRe
         print_error(message)
         if hint:
             console.print(f"[dim]Hint: {hint}[/dim]")
-    raise SystemExit(1)
+    raise SystemExit(EXIT_CODES.get(code, 1))
