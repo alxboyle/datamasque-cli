@@ -33,10 +33,14 @@ def _find_by_name(
 def _pick_single(matches: list[Ruleset], name: str) -> Ruleset:
     """Return the sole match or abort with a disambiguation message."""
     if not matches:
-        abort(f"Ruleset '{name}' not found.")
+        abort(f"Ruleset '{name}' not found.", code="not_found")
     if len(matches) > 1:
         options = "\n  ".join(f"id={rs.id} type={rs.ruleset_type.value}" for rs in matches)
-        abort(f"Multiple rulesets named '{name}':\n  {options}\nPass --type file|database to disambiguate.")
+        abort(
+            f"Multiple rulesets named '{name}':\n  {options}",
+            code="ambiguous",
+            hint="Pass --type file|database to disambiguate.",
+        )
     return matches[0]
 
 
@@ -128,10 +132,18 @@ def create_ruleset(
         rs_type = existing[0].ruleset_type
         print_info(f"Updating existing {rs_type.value}-type ruleset '{name}'.")
     elif not existing:
-        abort(f"No ruleset named '{name}' exists. Pass --type file|database to create a new one.")
+        abort(
+            f"No ruleset named '{name}' exists.",
+            code="not_found",
+            hint="Pass --type file|database to create a new one.",
+        )
     else:
         options = ", ".join(r.ruleset_type.value for r in existing)
-        abort(f"Multiple rulesets named '{name}' ({options}). Pass --type file|database to pick which one to update.")
+        abort(
+            f"Multiple rulesets named '{name}' ({options}).",
+            code="ambiguous",
+            hint="Pass --type file|database to pick which one to update.",
+        )
 
     yaml_content = file.read_text()
     ruleset = Ruleset(name=name, yaml=yaml_content, ruleset_type=rs_type)

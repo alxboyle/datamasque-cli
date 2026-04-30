@@ -36,7 +36,7 @@ def login(
     """
     url = typer.prompt("DataMasque URL").rstrip("/")
     if not url.startswith(("http://", "https://")):
-        abort(f"URL must start with http:// or https:// (got '{url}').")
+        abort(f"URL must start with http:// or https:// (got '{url}').", code="invalid_input")
 
     username = typer.prompt("Username")
     password = typer.prompt("Password", hide_input=True)
@@ -68,7 +68,7 @@ def logout(
     name = profile or config.active_profile
 
     if not config.delete_profile(name):
-        abort(f"Profile '{name}' does not exist.")
+        abort(f"Profile '{name}' does not exist.", code="not_found")
 
     # If we just deleted the active profile, fall back to another one.
     if name == config.active_profile:
@@ -87,7 +87,11 @@ def use_profile(
     config = load_config()
 
     if profile not in config.profiles:
-        abort(f"Profile '{profile}' does not exist. Run: dm auth login --profile {profile}")
+        abort(
+            f"Profile '{profile}' does not exist.",
+            code="not_found",
+            hint=f"Run: dm auth login --profile {profile}",
+        )
 
     config.active_profile = profile
     save_config(config)
@@ -133,7 +137,11 @@ def status() -> None:
         config = load_config()
         profile = config.get_profile()
         if not profile.is_configured:
-            abort(f"Profile '{config.active_profile}' is not configured. Run: dm auth login")
+            abort(
+                f"Profile '{config.active_profile}' is not configured.",
+                code="auth_required",
+                hint="Run: dm auth login",
+            )
         profile_label = config.active_profile
 
     print_info(f"Profile: {profile_label}")

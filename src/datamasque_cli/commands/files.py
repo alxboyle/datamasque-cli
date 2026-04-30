@@ -54,7 +54,7 @@ def delete_file(
 
     match = client.get_file_of_type_by_name(klass, name)
     if match is None:
-        abort(f"File '{name}' ({file_type}) not found.")
+        abort(f"File '{name}' ({file_type}) not found.", code="not_found")
 
     if not is_confirmed:
         typer.confirm(f"Delete file '{name}' ({file_type})?", abort=True)

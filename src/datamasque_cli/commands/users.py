@@ -60,7 +60,7 @@ def delete_user(
     users = client.list_users()
 
     if not any(u.username == username for u in users):
-        abort(f"User '{username}' not found.")
+        abort(f"User '{username}' not found.", code="not_found")
 
     if not is_confirmed:
         typer.confirm(f"Delete user '{username}'?", abort=True)
@@ -80,7 +80,7 @@ def reset_password(
 
     match = next((u for u in users if u.username == username), None)
     if match is None:
-        abort(f"User '{username}' not found.")
+        abort(f"User '{username}' not found.", code="not_found")
 
     new_password = client.reset_password_for_user(match)
     print_success(f"Password reset for '{username}'. New temporary password: {new_password}")

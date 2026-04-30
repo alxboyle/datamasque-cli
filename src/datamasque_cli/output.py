@@ -2,11 +2,18 @@
 
 Supports JSON output (--json) for machine consumption,
 and rich tables for human-readable display.
+
+JSON mode is auto-selected when stdout is not a TTY, when `DM_OUTPUT=json`
+is set, or when an `AI_AGENT` env var is present (a vendor-neutral signal
+that an AI agent is driving the CLI). Set `DM_OUTPUT=table` to force
+human output regardless.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any, NoReturn
 
 import typer
@@ -49,6 +56,35 @@ def redact_sensitive_fields(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_agent_context() -> bool:
+    """True when output is being consumed by a script or agent rather than a human.
+
+    Detects, in order:
+    - `DM_OUTPUT=table` → forced human (returns False)
+    - `DM_OUTPUT=json`  → forced agent
+    - `AI_AGENT` set    → vendor-neutral agent signal
+    - stdout is not a TTY (piped, captured, redirected)
+    """
+    output_pref = os.environ.get("DM_OUTPUT", "").strip().lower()
+    if output_pref == "table":
+        return False
+    if output_pref == "json":
+        return True
+    if os.environ.get("AI_AGENT"):
+        return True
+    return not sys.stdout.isatty()
+
+
+def should_emit_json(is_json_flag: bool = False) -> bool:
+    """Resolve whether the CLI should emit JSON for this command.
+
+    `--json` always wins; otherwise we fall through to `is_agent_context()`.
+    """
+    if is_json_flag:
+        return True
+    return is_agent_context()
+
+
 def print_json(data: object) -> None:
     typer.echo(json.dumps(data, indent=2, default=str))
 
@@ -79,6 +115,10 @@ def print_kv(data: dict[str, Any], title: str | None = None) -> None:
 
 
 def print_success(message: str) -> None:
+    # Decorative confirmation. Suppressed in agent mode — exit code 0 already
+    # signals success and an agent doesn't need the prose.
+    if is_agent_context():
+        return
     console.print(f"[green]{message}[/green]")
 
 
@@ -91,6 +131,8 @@ def print_warning(message: str) -> None:
 
 
 def print_info(message: str) -> None:
+    if is_agent_context():
+        return
     console.print(f"[dim]{message}[/dim]")
 
 
@@ -109,10 +151,11 @@ def render_output(
 ) -> None:
     """Unified output dispatcher.
 
-    When `is_json` is True, dumps `data` as JSON to stdout.
-    Otherwise renders a rich table from a list-of-dicts or a key-value dict.
+    Emits JSON to stdout when `should_emit_json(is_json)` is True (i.e. the
+    `--json` flag was passed or we detected an agent context). Otherwise
+    renders a rich table from a list-of-dicts or a key-value dict.
     """
-    if is_json:
+    if should_emit_json(is_json):
         print_json(data)
         return
 
@@ -130,6 +173,24 @@ def render_output(
         typer.echo(data)
 
 
-def abort(message: str) -> NoReturn:
-    print_error(message)
+def abort(message: str, *, code: str = "error", hint: str | None = None) -> NoReturn:
+    """Print an error and exit with status 1.
+
+    In agent mode, emits a structured error envelope to stderr:
+        {"error": {"code": "...", "message": "...", "hint": "..."}}
+    In human mode, prints a red 'Error: …' line plus an optional hint.
+
+    `code` is a stable, machine-readable identifier (e.g. `not_found`,
+    `invalid_input`, `auth_required`). Phase 3 will add differentiated
+    exit codes; for now everything exits 1.
+    """
+    if is_agent_context():
+        envelope: dict[str, Any] = {"error": {"code": code, "message": message}}
+        if hint:
+            envelope["error"]["hint"] = hint
+        typer.echo(json.dumps(envelope), err=True)
+    else:
+        print_error(message)
+        if hint:
+            console.print(f"[dim]Hint: {hint}[/dim]")
     raise SystemExit(1)

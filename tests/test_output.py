@@ -4,7 +4,15 @@ import json
 
 import pytest
 
-from datamasque_cli.output import abort, print_json, print_table, redact_sensitive_fields, render_output
+from datamasque_cli.output import (
+    abort,
+    is_agent_context,
+    print_json,
+    print_table,
+    redact_sensitive_fields,
+    render_output,
+    should_emit_json,
+)
 
 
 def test_print_json_outputs_indented(capsys: pytest.CaptureFixture[str]) -> None:
@@ -89,3 +97,80 @@ def test_print_table_does_not_truncate_long_ids_in_narrow_terminal(
     flattened = out.replace("\n", "").replace(" ", "").replace("│", "").replace("┃", "")
     assert uuid in flattened
     assert "…" not in out
+
+
+def test_is_agent_context_respects_dm_output_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "table")
+    monkeypatch.setenv("AI_AGENT", "1")
+    assert is_agent_context() is False
+
+
+def test_is_agent_context_detects_dm_output_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "json")
+    assert is_agent_context() is True
+
+
+def test_is_agent_context_detects_ai_agent_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DM_OUTPUT", raising=False)
+    monkeypatch.setenv("AI_AGENT", "claude-code/2.x")
+    assert is_agent_context() is True
+
+
+def test_should_emit_json_flag_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # DM_OUTPUT=table forces human mode — but explicit --json must still win.
+    monkeypatch.setenv("DM_OUTPUT", "table")
+    assert should_emit_json(is_json_flag=True) is True
+
+
+def test_render_output_auto_json_in_agent_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "json")
+    render_output([{"id": "abc", "name": "foo"}], is_json=False)
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data == [{"id": "abc", "name": "foo"}]
+
+
+def test_abort_emits_structured_envelope_in_agent_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "json")
+    with pytest.raises(SystemExit) as exc_info:
+        abort("Connection 'foo' not found.", code="not_found", hint="Run dm connections list.")
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert payload == {
+        "error": {
+            "code": "not_found",
+            "message": "Connection 'foo' not found.",
+            "hint": "Run dm connections list.",
+        }
+    }
+    # Stdout must stay clean on error so an agent's pipeline doesn't trip.
+    assert captured.out == ""
+
+
+def test_abort_human_mode_prints_red_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "table")
+    with pytest.raises(SystemExit):
+        abort("nope", code="not_found")
+    captured = capsys.readouterr()
+    assert "nope" in captured.err
+    # In human mode we don't dump JSON.
+    assert "{" not in captured.err
+
+
+def test_print_success_suppressed_in_agent_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DM_OUTPUT", "json")
+    from datamasque_cli.output import print_success
+
+    print_success("looks good")
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == ""

@@ -94,7 +94,7 @@ def get_connection(
 
     match = next((c for c in connections if c.name == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code="not_found")
 
     data = redact_sensitive_fields(match.model_dump())
     render_output(data, is_json=is_json, title=f"Connection: {name}")
@@ -141,7 +141,7 @@ def create_connection(
         return
 
     if name is None or conn_type is None:
-        abort("Provide either --file or both --name and --type.")
+        abort("Provide either --file or both --name and --type.", code="invalid_input")
 
     config = _build_connection_config(
         name=name,
@@ -170,7 +170,7 @@ def _create_from_file(client: DataMasqueClient, file: Path) -> None:
 
     if conn_type not in _CONNECTION_CLASSES:
         valid = ", ".join(_CONNECTION_CLASSES)
-        abort(f"Unknown connection type '{conn_type}'. Valid: {valid}")
+        abort(f"Unknown connection type '{conn_type}'.", code="invalid_input", hint=f"Valid: {valid}")
 
     # Convert db_type string to enum for database connections
     if conn_type == "database" and "database_type" in data:
@@ -201,7 +201,10 @@ def _build_connection_config(
     """Build a connection config from CLI flags."""
     if conn_type == "database":
         if not all([host, port, database, user, password, db_type]):
-            abort("Database connections require: --host, --port, --database, --user, --password, --db-type")
+            abort(
+                "Database connections require: --host, --port, --database, --user, --password, --db-type",
+                code="invalid_input",
+            )
         return DatabaseConnectionConfig(
             name=name,
             host=host,
@@ -215,7 +218,7 @@ def _build_connection_config(
 
     if conn_type == "mounted_share":
         if base_directory is None:
-            abort("Mounted share connections require: --base-dir")
+            abort("Mounted share connections require: --base-dir", code="invalid_input")
         return MountedShareConnectionConfig(
             name=name,
             base_directory=base_directory,
@@ -225,7 +228,7 @@ def _build_connection_config(
 
     if conn_type == "s3":
         if base_directory is None or bucket is None:
-            abort("S3 connections require: --base-dir, --bucket")
+            abort("S3 connections require: --base-dir, --bucket", code="invalid_input")
         return S3ConnectionConfig(
             name=name,
             base_directory=base_directory,
@@ -234,7 +237,10 @@ def _build_connection_config(
             is_file_mask_destination=is_destination,
         )
 
-    abort(f"Use --file for '{conn_type}' connections (too many fields for CLI flags).")
+    abort(
+        f"Use --file for '{conn_type}' connections (too many fields for CLI flags).",
+        code="invalid_input",
+    )
 
 
 @app.command("test")
@@ -252,7 +258,7 @@ def test_connection(
 
     match = next((c for c in client.list_connections() if c.name == name or str(c.id) == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code="not_found")
 
     response = client.make_request("POST", f"/api/connections/{match.id}/test/", data={})
     body = response.json() if response.content else {}
@@ -285,7 +291,7 @@ def update_connection(
 
     match = next((c for c in client.list_connections() if c.name == name or str(c.id) == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code="not_found")
 
     updates: dict[str, object] = {
         key: value
@@ -301,7 +307,7 @@ def update_connection(
         if value is not None
     }
     if not updates:
-        abort("Pass at least one field to update (e.g. --password, --host).")
+        abort("Pass at least one field to update (e.g. --password, --host).", code="invalid_input")
 
     client.make_request("PATCH", f"/api/connections/{match.id}/", data=updates)
     print_success(f"Connection '{match.name}' updated: {', '.join(updates)}.")
@@ -316,7 +322,7 @@ def delete_connection(
     """Delete a connection by name."""
     client = get_client(profile)
     if not any(c.name == name for c in client.list_connections()):
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code="not_found")
 
     if not is_confirmed:
         typer.confirm(f"Delete connection '{name}'?", abort=True)

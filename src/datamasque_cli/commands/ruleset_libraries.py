@@ -49,7 +49,7 @@ def get_library(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code="not_found")
 
     if is_yaml:
         typer.echo(lib.yaml)
@@ -95,7 +95,7 @@ def delete_library(
 
     client = get_client(profile)
     if client.get_ruleset_library_by_name(name, namespace) is None:
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code="not_found")
 
     if not is_confirmed:
         typer.confirm(f"Delete library '{label}'?", abort=True)
@@ -119,7 +119,7 @@ def validate_library(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code="not_found")
 
     validated = client.validate_ruleset_library(lib.id)
     status = validated.is_valid.value if validated.is_valid else "unknown"
@@ -140,7 +140,7 @@ def library_usage(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code="not_found")
 
     rulesets = client.list_rulesets_using_library(lib.id)
 

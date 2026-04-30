@@ -21,6 +21,7 @@ from datamasque_cli.output import (
     print_json,
     print_success,
     render_output,
+    should_emit_json,
     stdout_console,
     style_status,
 )
@@ -72,7 +73,7 @@ def _resolve_connection(client: DataMasqueClient, name_or_id: str) -> Connection
         return match
 
     available = ", ".join(c.name for c in connections)
-    abort(f"Connection '{name_or_id}' not found. Available: {available}")
+    abort(f"Connection '{name_or_id}' not found.", code="not_found", hint=f"Available: {available}")
 
 
 def _resolve_connection_id(client: DataMasqueClient, name_or_id: str) -> str:
@@ -98,26 +99,32 @@ def _resolve_ruleset_id(client: DataMasqueClient, name_or_id: str, mask_type: st
             existing = ", ".join(f"{r.ruleset_type.value}" for r in by_name)
             abort(
                 f"Ruleset '{name_or_id}' exists as {existing}, "
-                f"but a {mask_type} ruleset is required for this connection."
+                f"but a {mask_type} ruleset is required for this connection.",
+                code="invalid_input",
             )
 
     if len(by_name) == 1:
         return str(by_name[0].id)
     if len(by_name) > 1:
         options = ", ".join(f"{r.ruleset_type.value}:{r.id}" for r in by_name)
-        abort(f"Multiple rulesets named '{name_or_id}' ({options}). Pass a UUID instead, or rename one of them.")
+        abort(
+            f"Multiple rulesets named '{name_or_id}' ({options}).",
+            code="ambiguous",
+            hint="Pass a UUID instead, or rename one of them.",
+        )
 
     by_id = next((r for r in rulesets if str(r.id) == name_or_id), None)
     if by_id is not None:
         if mask_type is not None and by_id.ruleset_type.value != mask_type:
             abort(
                 f"Ruleset {name_or_id} is a {by_id.ruleset_type.value} ruleset "
-                f"but a {mask_type} ruleset is required for this connection."
+                f"but a {mask_type} ruleset is required for this connection.",
+                code="invalid_input",
             )
         return name_or_id
 
     available = ", ".join(r.name for r in rulesets)
-    abort(f"Ruleset '{name_or_id}' not found. Available: {available}")
+    abort(f"Ruleset '{name_or_id}' not found.", code="not_found", hint=f"Available: {available}")
 
 
 def _coerce_option_value(value: str) -> object:
@@ -142,7 +149,7 @@ def _parse_options(pairs: list[str]) -> dict[str, object]:
     parsed: dict[str, object] = {}
     for pair in pairs:
         if "=" not in pair:
-            abort(f"--options expects key=value, got '{pair}'.")
+            abort(f"--options expects key=value, got '{pair}'.", code="invalid_input")
         key, _, raw = pair.partition("=")
         parsed[key.strip()] = _coerce_option_value(raw.strip())
     return parsed
@@ -175,8 +182,9 @@ def start_run(
     # "source must be a database connection" error. Reject client-side.
     if source.mask_type == "file" and destination is None:
         abort(
-            f"File masking requires a destination connection. "
-            f"Pass --destination <name> (source '{source.name}' is a file-type connection)."
+            f"File masking requires a destination connection (source '{source.name}' is a file-type connection).",
+            code="invalid_input",
+            hint="Pass --destination <name>.",
         )
 
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
@@ -188,7 +196,8 @@ def start_run(
         if dest.mask_type != source.mask_type:
             abort(
                 f"Connection type mismatch: source '{source.name}' is {source.mask_type} "
-                f"but destination '{dest.name}' is {dest.mask_type}."
+                f"but destination '{dest.name}' is {dest.mask_type}.",
+                code="invalid_input",
             )
         destination_id = str(dest.id)
 
@@ -204,7 +213,7 @@ def start_run(
     print_success(f"Run {run_id} started ({run_name}).")
 
     if is_background:
-        if is_json:
+        if should_emit_json(is_json):
             print_json({"id": int(run_id), "status": "queued"})
         return
 
@@ -220,7 +229,10 @@ def run_status(
     """Get status of a masking run."""
     client = get_client(profile)
     run = client.get_run_info(RunId(run_id))
-    render_output(_format_run_info(run, is_styled=not is_json), is_json=is_json, title=f"Run {run_id}")
+    # Skip rich styling tags when output will be JSON — otherwise they'd appear
+    # as literal "[status.finished]finished[/status.finished]" in the dump.
+    is_styled = not should_emit_json(is_json)
+    render_output(_format_run_info(run, is_styled=is_styled), is_json=is_json, title=f"Run {run_id}")
 
 
 @app.command("list")
@@ -254,7 +266,8 @@ def list_runs(
         runs: list[dict[str, object]] = body.get("results", [])
     else:
         runs = body
-    data = [_format_run_dict(r, is_styled=not is_json) for r in runs]
+    is_styled = not should_emit_json(is_json)
+    data = [_format_run_dict(r, is_styled=is_styled) for r in runs]
 
     render_output(
         data,
@@ -278,9 +291,10 @@ def run_logs(
     """
     client = get_client(profile)
 
+    raw_mode = should_emit_json(is_json)
     if not follow:
         log = client.get_run_log(RunId(run_id))
-        if is_json:
+        if raw_mode:
             typer.echo(log)
         else:
             _print_pretty_logs(log)
@@ -294,7 +308,7 @@ def run_logs(
         printed = min(printed, len(log))
         if len(log) > printed:
             chunk = log[printed:]
-            if is_json:
+            if raw_mode:
                 typer.echo(chunk, nl=False)
             else:
                 _print_pretty_logs(chunk)
@@ -316,7 +330,7 @@ def cancel_run(
     try:
         client.cancel_run(RunId(run_id))
     except RunNotCancellableError as exc:
-        abort(str(exc))
+        abort(str(exc), code="conflict")
     print_success(f"Run {run_id} cancellation requested.")
 
 
@@ -337,8 +351,12 @@ def run_report(
         # report). The default error string is opaque, so name the cause.
         if exc.response is not None and exc.response.status_code == _HTTP_NOT_FOUND:
             abort(
-                f"No report available for run {run_id}. Reports are generated by the worker "
-                f"once the run reaches a final state — check status with `dm run status {run_id}`."
+                f"No report available for run {run_id}.",
+                code="not_found",
+                hint=(
+                    f"Reports are generated by the worker once the run reaches a final state. "
+                    f"Check status with `dm run status {run_id}`."
+                ),
             )
         raise
 
@@ -378,7 +396,7 @@ def retry_run(
     source_id = original.source_connection.id
     ruleset_id = original.ruleset
     if not source_id or not ruleset_id:
-        abort(f"Run {run_id} is missing source or ruleset — cannot retry.")
+        abort(f"Run {run_id} is missing source or ruleset — cannot retry.", code="invalid_input")
 
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     run_name = f"{original.source_connection.name or source_id}_retry_{timestamp}"
@@ -402,7 +420,7 @@ def retry_run(
     print_success(f"Run {new_run_id} started (retry of {run_id}, {run_name}).")
 
     if is_background:
-        if is_json:
+        if should_emit_json(is_json):
             print_json({"id": int(new_run_id), "status": "queued"})
         return
 
@@ -446,7 +464,7 @@ def _wait_for_run(
     elapsed = time.monotonic() - started_at
     duration = _format_duration(int(elapsed))
 
-    if is_json:
+    if should_emit_json(is_json):
         print_json(_format_run_info(run))
 
     status = run.status

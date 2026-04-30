@@ -47,7 +47,7 @@ def delete_seed(
     client = get_client(profile)
     match = client.get_file_of_type_by_name(SeedFile, filename)
     if match is None:
-        abort(f"Seed file '{filename}' not found.")
+        abort(f"Seed file '{filename}' not found.", code="not_found")
 
     if not is_confirmed:
         typer.confirm(f"Delete seed file '{filename}'?", abort=True)
