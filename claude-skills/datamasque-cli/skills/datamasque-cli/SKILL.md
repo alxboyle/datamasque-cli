@@ -7,181 +7,238 @@ user-invocable: true
 
 # DataMasque CLI
 
-Operate a DataMasque instance via the `dm` command-line tool.
+Operate a DataMasque instance via the `dm` command-line tool. The CLI is
+designed for agents — it auto-detects when an agent is calling it, returns
+JSON, and reports errors in a structured envelope with stable codes.
 
 ## Prerequisites
 
-The `dm` CLI must be installed. Check with:
 ```bash
-dm version
+dm version          # check it's installed
+uv tool install datamasque-cli   # install if not
 ```
 
-If not installed, install it:
+## First step: discover the surface
+
+Before composing a sequence of `dm` calls, run `dm catalog --compact` once.
+It dumps every subcommand and its help text as JSON, so you can pick the
+right command without paging through `--help` screens:
+
 ```bash
-uv tool install datamasque-cli
+dm catalog --compact     # ~1.4kB JSON, just {path, help}
+dm catalog               # ~10kB, also includes flags and arguments
 ```
+
+Treat the catalog as the source of truth for what commands exist. The
+examples below cover *idiom* — the gotchas that aren't visible from `--help`.
+
+## How output works
+
+`dm` emits JSON automatically when an agent is driving it. You don't need to
+pass `--json` — JSON is the default whenever:
+
+- `stdout` is not a TTY (piped, captured, redirected),
+- `DM_OUTPUT=json` is set,
+- the vendor-neutral `AI_AGENT` env var is set (Claude Code sets this).
+
+Force human-readable tables with `DM_OUTPUT=table` if a human is watching.
+
+## How errors work
+
+In agent mode, every error comes back as JSON on **stderr**, with stdout left
+empty so a downstream `jq` or pipe doesn't trip:
+
+```json
+{"error": {"code": "not_found", "message": "Connection 'foo' not found.", "hint": "Run dm connections list."}}
+```
+
+The `error.code` is one of a stable set — branch on it to decide whether to
+retry, fix arguments, or surface the failure to the user. Each maps to a
+documented exit code:
+
+| Exit | `error.code`      | Meaning                                        |
+| ---: | ----------------- | ---------------------------------------------- |
+|    0 | —                 | success                                        |
+|    1 | `error`           | unclassified failure                           |
+|    2 | —                 | typer/click usage error (unknown flag etc.)    |
+|    3 | `not_found`       | resource lookup failed                         |
+|    4 | `invalid_input`   | argument values rejected                       |
+|    5 | `ambiguous`       | name matched multiple resources                |
+|    6 | `auth_required`   | no credentials configured                      |
+|    7 | `auth_failed`     | credentials rejected by server                 |
+|    8 | `conflict`        | operation rejected by server state             |
+|    9 | `transport_error` | network or TLS failure                         |
+
+These are stable across minor versions, so it's safe to write code that
+branches on them.
 
 ## Authentication
 
-There are two ways to authenticate:
+Two options, in priority order:
 
-**Option 1: Environment variables**
+**Environment variables.** If `DATAMASQUE_URL`, `DATAMASQUE_USERNAME`, and
+`DATAMASQUE_PASSWORD` are set, `dm` uses them directly with no profile
+needed. This is the right choice for CI and ad-hoc agent runs.
 
-If `DATAMASQUE_URL`, `DATAMASQUE_USERNAME`, and `DATAMASQUE_PASSWORD` are set,
-`dm` uses them automatically with no login step needed.
-
-**Option 2: Profiles (interactive use)**
+**Saved profile.** For interactive sessions:
 
 ```bash
-dm auth login --profile <name>  # fully interactive — prompts for URL, username, password
-dm auth status        # Check current auth
-dm auth use <profile> # Switch active profile
+dm auth login --profile <name>   # prompts for URL / username / password
+dm auth status                    # show what's currently authenticated
+dm auth use <profile>             # switch active profile
 ```
 
-## Common Workflows
+Add `--insecure` to `auth login` to skip TLS verification (dev / self-signed
+certs only). `DATAMASQUE_VERIFY_SSL=false` does the same per-call without
+mutating the saved profile.
 
-### 1. Start a masking run and wait for it
+## Common workflows
 
-`dm run start` blocks until the run finishes by default. Pass `--background`
-to return immediately. The CLI picks the file-type or database-type ruleset
-automatically by reading the source connection's type — same-name rulesets
-across the two namespaces are legitimate and get disambiguated for you.
+### Start a masking run
+
+`dm run start` blocks until the run finishes by default. The CLI inspects
+the source connection's type and auto-picks the matching ruleset namespace
+(database vs file), so `--ruleset <name>` works even when the same name
+exists in both namespaces.
 
 ```bash
-dm connections list
-dm rulesets list
+dm connections list                # find a source connection
+dm rulesets list                   # find a ruleset
 
 dm run start \
-  --connection <source-connection-name> \
-  --ruleset <ruleset-name> \
-  --destination <dest-connection-name>
+  --connection <source> \
+  --ruleset <ruleset> \
+  --destination <dest>             # required for file masking; optional otherwise
 
-dm run logs <run-id>
-```
+# Background mode — return immediately, poll separately.
+dm run start -c <source> -r <ruleset> --background
 
-### 2. Monitor an existing run
-
-```bash
-dm run status <run-id>
-dm run list --status running
-dm run wait <run-id>
-dm run logs <run-id>
-dm run logs <run-id> --follow   # stream until the run hits a terminal state
-dm run cancel <run-id>
-dm run retry <run-id>           # re-run with the same source/ruleset/destination/options
-```
-
-Pass extra server-side knobs at start via repeatable `--options key=value`:
-
-```bash
-dm run start -c <conn> -r <ruleset> -d <dest> \
+# Pass server-side knobs as repeatable --options key=value pairs.
+dm run start -c <source> -r <ruleset> \
   --options batch_size=1000 --options dry_run=true
 ```
 
-### 3. Manage connections
+### Monitor and manage runs
 
 ```bash
-dm connections list                              # includes a source/destination role column
-dm connections get <name-or-id>
-dm connections create --file connection.json    # from a JSON blob
-dm connections create --name <n> --type database --db-type postgres \
-    --host <h> --port 5432 --database <d> --user <u> --password <p>
-dm connections test <name>                       # verify reachability without starting a run
-dm connections update <name> --password <new>    # rotate a field in place (preserves UUID)
-dm connections delete <name>
+dm run status <run-id>             # one-shot status snapshot
+dm run list --status running       # filter by state
+dm run wait <run-id>               # block until terminal state
+dm run logs <run-id>               # one-shot log dump
+dm run logs <run-id> --follow      # stream until terminal state
+dm run cancel <run-id>             # exits with code 8 if not cancellable
+dm run retry <run-id>              # re-run with the original config
+dm run report <run-id> --output report.csv
 ```
 
-### 4. Manage rulesets
-
-DataMasque has two separate ruleset namespaces — `database` and `file` — so
-the same name can exist in both. `dm rulesets create` reads the server's
-stored `mask_type` when updating an existing ruleset; `--type file|database`
-is required only for brand-new rulesets or when two rows share a name.
-`get` / `delete` / `list` accept `--type` to disambiguate.
+### Connections
 
 ```bash
-dm rulesets list
-dm rulesets list --type file
-dm rulesets get <name-or-id>
-dm rulesets get <name-or-id> --type file
-dm rulesets get <name-or-id> --yaml
-dm rulesets create --name <name> --file ruleset.yaml
-dm rulesets create --name <name> --file ruleset.yaml --type file
-dm rulesets delete <name> [--type file|database]
+dm connections list                # includes a source/destination role column
+dm connections get <name>
+dm connections test <name>         # verify reachability without starting a run
+dm connections update <name> --password <new>   # preserves the UUID and any references
+dm connections delete <name> --yes
+```
+
+To create a connection, prefer `--file <connection.json>` for anything beyond
+a simple Postgres / S3 / mounted-share — the JSON form supports every
+backend type. Quick database example:
+
+```bash
+dm connections create --name mydb --type database --db-type postgres \
+    --host db.example.com --port 5432 --database mydb \
+    --user admin --password secret
+```
+
+### Rulesets
+
+DataMasque has two ruleset namespaces — `database` and `file` — so the same
+name can legitimately exist in both. Most commands auto-disambiguate, with
+`--type file|database` available to pin a specific one.
+
+- `create` reads the server's existing `mask_type` when updating a ruleset by
+  name. `--type` is needed only when creating a brand-new ruleset, or when
+  two rows share the name and you're updating one of them.
+- `get` / `delete` accept `--type` to disambiguate.
+
+```bash
+dm rulesets list [--type file]
+dm rulesets get <name> [--type file] [--yaml]
+dm rulesets create --name <name> --file ruleset.yaml [--type file]
+dm rulesets delete <name> [--type file] --yes
+dm rulesets validate --file ruleset.yaml --type database
 dm rulesets generate --file request.json
-dm rulesets validate --file ruleset.yaml
 ```
 
-### 5. Manage ruleset libraries
+### Ruleset libraries
 
 ```bash
 dm libraries list
 dm libraries get <name> [--namespace <ns>] [--yaml]
 dm libraries create --name <name> --file library.yml [--namespace <ns>]
+dm libraries usage <name>          # which rulesets import it — check before deleting
 dm libraries delete <name> [--namespace <ns>] [--force]
-dm libraries usage <name> [--namespace <ns>]
 ```
 
-### 6. System administration
+### Discovery
+
+Discovery runs are kicked off as background masking-run jobs. Poll with
+`dm run status <run-id>` until terminal, then fetch results.
+
+```bash
+dm discover schema <connection>           # start the run, returns a run-id
+dm discover schema-results <run-id>       # list detected columns + matches
+dm discover sdd-report   <run-id> --output report.csv
+dm discover db-report    <run-id> --output report.csv
+dm discover file-report  <run-id> --output report.json
+```
+
+### System
 
 ```bash
 dm system health
 dm system licence
 dm system logs --output logs.tar.gz
-dm rulesets export-bundle --output bundle.zip
-dm rulesets import-bundle --file bundle.zip --yes
 dm system upload-licence licence.lic
 dm system admin-install --email admin@example.com --username admin
 ```
 
-### 7. Seed files and uploads
+### Bundle export / import
+
+For migrating rulesets + libraries + seeds between instances:
 
 ```bash
-dm seeds list
-dm seeds upload <path-to-csv>
-dm seeds delete <filename>
-dm files list --type snowflake-key
-dm files upload <path> --name <name> --type <type>
+dm rulesets export-bundle --output bundle.zip
+dm rulesets import-bundle --file bundle.zip --yes
 ```
 
-### 8. Users
+## Gotchas
 
-```bash
-dm users list
-dm users create --username <name> --email <email> --password <pass> --role mask_runner
-dm users reset-password --username <name> --password <new-pass>
-```
-
-### 9. Data discovery
-
-Reports print to stdout by default. Pass `--output <path>` to write them
-to disk instead.
-
-```bash
-dm discover schema <connection-name>            # start a schema-discovery run (accepts name or UUID)
-dm discover schema-results <run-id>             # list schema-discovery results once the run finishes
-dm discover sdd-report <run-id> --output report.csv
-dm discover db-report <run-id> --output report.csv
-dm discover file-report <run-id> --output report.json
-```
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Failure |
-| 2 | Authentication error |
-
-## Global Options
-
-- `--profile <name>` — use a specific profile
-- `--json` — output as JSON
+- **File masking needs `--destination`.** A file-type source masks *into* a
+  destination connection — the run fails fast (exit 4) if you forget. Database
+  masking is in-place; no destination is allowed there.
+- **Library deletion fails on imports.** `dm libraries delete` rejects
+  libraries that are still imported by a ruleset. Pass `--force` to delete
+  anyway, but run `dm libraries usage <name>` first to see what'll break.
+- **Run cancellation depends on state.** `dm run cancel` exits 8 (`conflict`)
+  if the run is already in a terminal state — that's normal, not a bug.
+- **Run-id from `dm run start` arrives on stderr** as part of the success
+  message in human mode; in agent mode you get JSON on stdout when
+  `--background` is set, otherwise it blocks and prints the final status.
 
 ## Troubleshooting
 
-- **"Could not connect to ..."** — instance is unreachable
-- **"Authentication failed"** — wrong credentials, re-run `dm auth login`
-- **Run failed** — use `dm run logs <run-id>` for details
-- **Validation failed** — `dm rulesets validate` shows server error messages
-- **Library import error** — check `dm libraries list`, name must match exactly
+- **`auth_required` (exit 6):** no profile or env credentials. Run
+  `dm auth login` or set `DATAMASQUE_URL`/`USERNAME`/`PASSWORD`.
+- **`auth_failed` (exit 7):** credentials rejected by server. Re-check the
+  password (it was redacted from any saved config you might be reading).
+- **`transport_error` (exit 9):** network/TLS issue. The error message
+  includes the URL it tried; if it's a self-signed cert, try `--insecure`
+  on `auth login` or `DATAMASQUE_VERIFY_SSL=false`.
+- **`not_found` (exit 3):** double-check the name with `dm <thing> list`.
+  Names are case-sensitive.
+- **Run failed:** `dm run logs <run-id>` shows the worker's output. The CSV
+  report (`dm run report <run-id>`) is only generated after a terminal state.
+- **Validation failed:** `dm rulesets validate --file <file> --type <type>`
+  surfaces the server's error messages without committing the ruleset.
