@@ -10,6 +10,7 @@ from datamasque_cli.output import (
     abort,
     is_agent_context,
     print_json,
+    print_success,
     print_table,
     redact_sensitive_fields,
     render_output,
@@ -195,8 +196,6 @@ def test_print_success_suppressed_in_agent_mode(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("DM_OUTPUT", "json")
-    from datamasque_cli.output import print_success
-
     print_success("looks good")
     captured = capsys.readouterr()
     assert captured.err == ""

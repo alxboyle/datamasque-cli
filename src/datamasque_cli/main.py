@@ -15,6 +15,7 @@ from typing import Any
 import click
 import typer
 from rich.console import Console
+from typer.main import get_command
 
 from datamasque_cli.commands import (
     auth,
@@ -108,8 +109,6 @@ def catalog(
     Designed to be called once at session start so an agent can introspect
     every available subcommand without parsing per-command --help screens.
     """
-    from typer.main import get_command
-
     click_app = get_command(app)
     if not isinstance(click_app, click.Group):
         # Defensive — a Typer app with subcommands always materialises as a Group.
