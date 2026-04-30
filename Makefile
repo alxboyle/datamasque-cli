@@ -1,4 +1,4 @@
-.PHONY: install lint format mypy test test-integration test-integration-local check build publish release-patch release-minor release-major
+.PHONY: install lint format mypy test test-integration test-integration-local check build release-patch release-minor release-major
 
 install:
 	uv sync
@@ -32,9 +32,6 @@ format-check:
 
 build:
 	uv build
-
-publish: check build
-	uv publish --index datamasque-private-pypi -u "" -p "" dist/*
 
 # Bump version, commit, tag, push — CI publishes automatically.
 # Usage: make release-patch  (0.1.0 → 0.1.1)

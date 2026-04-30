@@ -185,13 +185,10 @@ Each target runs `make check`,
 bumps the version in `pyproject.toml`,
 refreshes `uv.lock`,
 commits, tags, and pushes.
-CI handles the publish.
+CI handles the publish to PyPI.
 
-To publish manually without bumping:
-
-```console
-make publish
-```
+To smoke-test a release against TestPyPI without tagging,
+trigger the `Release (TestPyPI)` workflow manually from the GitHub Actions tab.
 
 ## Toolchain
 
