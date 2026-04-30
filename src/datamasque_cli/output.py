@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from enum import StrEnum
 from typing import Any, NoReturn
 
 import typer
@@ -44,19 +45,37 @@ _SENSITIVE_FIELD_SUBSTRINGS = ("password", "secret", "token", "key", "credential
 _REDACTED = "<redacted>"
 
 
+class ErrorCode(StrEnum):
+    """Stable, machine-readable error categories.
+
+    StrEnum members are str subclasses, so the value flows directly into
+    the JSON envelope's `error.code` field via `json.dumps`. Pair with
+    `EXIT_CODES` to map to a process exit status.
+    """
+
+    ERROR = "error"
+    NOT_FOUND = "not_found"
+    INVALID_INPUT = "invalid_input"
+    AMBIGUOUS = "ambiguous"
+    AUTH_REQUIRED = "auth_required"
+    AUTH_FAILED = "auth_failed"
+    CONFLICT = "conflict"
+    TRANSPORT_ERROR = "transport_error"
+
+
 # Exit-code taxonomy for `abort()`. Stable across minor versions — agents can
 # branch on these to decide whether to retry, prompt the user, or give up.
 # `2` is intentionally skipped because typer/click already uses it for CLI
 # usage errors (unknown flag, missing required arg).
-EXIT_CODES: dict[str, int] = {
-    "error": 1,
-    "not_found": 3,
-    "invalid_input": 4,
-    "ambiguous": 5,
-    "auth_required": 6,
-    "auth_failed": 7,
-    "conflict": 8,
-    "transport_error": 9,
+EXIT_CODES: dict[ErrorCode, int] = {
+    ErrorCode.ERROR: 1,
+    ErrorCode.NOT_FOUND: 3,
+    ErrorCode.INVALID_INPUT: 4,
+    ErrorCode.AMBIGUOUS: 5,
+    ErrorCode.AUTH_REQUIRED: 6,
+    ErrorCode.AUTH_FAILED: 7,
+    ErrorCode.CONFLICT: 8,
+    ErrorCode.TRANSPORT_ERROR: 9,
 }
 
 
@@ -189,17 +208,15 @@ def render_output(
         typer.echo(data)
 
 
-def abort(message: str, *, code: str = "error", hint: str | None = None) -> NoReturn:
+def abort(message: str, *, code: ErrorCode = ErrorCode.ERROR, hint: str | None = None) -> NoReturn:
     """Print an error and exit with the exit code mapped to `code`.
 
     In agent mode, emits a structured error envelope to stderr:
         {"error": {"code": "...", "message": "...", "hint": "..."}}
     In human mode, prints a red 'Error: …' line plus an optional hint.
 
-    `code` is a stable, machine-readable identifier (e.g. `not_found`,
-    `invalid_input`). Exit code is looked up in `EXIT_CODES`; unknown
-    codes fall back to 1 so callers can introduce new categories
-    incrementally without changing the contract.
+    `code` is an `ErrorCode` member (StrEnum), so it serializes directly
+    into the envelope's `error.code` field as the underlying string.
     """
     if is_agent_context():
         envelope: dict[str, Any] = {"error": {"code": code, "message": message}}
@@ -210,4 +227,4 @@ def abort(message: str, *, code: str = "error", hint: str | None = None) -> NoRe
         print_error(message)
         if hint:
             console.print(f"[dim]Hint: {hint}[/dim]")
-    raise SystemExit(EXIT_CODES.get(code, 1))
+    raise SystemExit(EXIT_CODES[code])

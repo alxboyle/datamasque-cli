@@ -13,7 +13,7 @@ from datamasque.client.exceptions import DataMasqueApiError
 from datamasque.client.models.ruleset import Ruleset, RulesetType
 
 from datamasque_cli.client import get_client
-from datamasque_cli.output import abort, print_error, print_info, print_success, print_warning, render_output
+from datamasque_cli.output import ErrorCode, abort, print_error, print_info, print_success, print_warning, render_output
 
 app = typer.Typer(help="Manage masking rulesets.", no_args_is_help=True)
 
@@ -33,12 +33,12 @@ def _find_by_name(
 def _pick_single(matches: list[Ruleset], name: str) -> Ruleset:
     """Return the sole match or abort with a disambiguation message."""
     if not matches:
-        abort(f"Ruleset '{name}' not found.", code="not_found")
+        abort(f"Ruleset '{name}' not found.", code=ErrorCode.NOT_FOUND)
     if len(matches) > 1:
         options = "\n  ".join(f"id={rs.id} type={rs.ruleset_type.value}" for rs in matches)
         abort(
             f"Multiple rulesets named '{name}':\n  {options}",
-            code="ambiguous",
+            code=ErrorCode.AMBIGUOUS,
             hint="Pass --type file|database to disambiguate.",
         )
     return matches[0]
@@ -134,14 +134,14 @@ def create_ruleset(
     elif not existing:
         abort(
             f"No ruleset named '{name}' exists.",
-            code="not_found",
+            code=ErrorCode.NOT_FOUND,
             hint="Pass --type file|database to create a new one.",
         )
     else:
         options = ", ".join(r.ruleset_type.value for r in existing)
         abort(
             f"Multiple rulesets named '{name}' ({options}).",
-            code="ambiguous",
+            code=ErrorCode.AMBIGUOUS,
             hint="Pass --type file|database to pick which one to update.",
         )
 

@@ -6,7 +6,7 @@ import typer
 
 from datamasque_cli.client import get_client, profile_from_env
 from datamasque_cli.config import DEFAULT_PROFILE, Profile, load_config, save_config
-from datamasque_cli.output import abort, print_info, print_success, print_table
+from datamasque_cli.output import ErrorCode, abort, print_info, print_success, print_table
 
 # `login` and `status` handle connection errors locally
 # because they need softer behaviour than `get_client`'s hard abort:
@@ -36,7 +36,7 @@ def login(
     """
     url = typer.prompt("DataMasque URL").rstrip("/")
     if not url.startswith(("http://", "https://")):
-        abort(f"URL must start with http:// or https:// (got '{url}').", code="invalid_input")
+        abort(f"URL must start with http:// or https:// (got '{url}').", code=ErrorCode.INVALID_INPUT)
 
     username = typer.prompt("Username")
     password = typer.prompt("Password", hide_input=True)
@@ -68,7 +68,7 @@ def logout(
     name = profile or config.active_profile
 
     if not config.delete_profile(name):
-        abort(f"Profile '{name}' does not exist.", code="not_found")
+        abort(f"Profile '{name}' does not exist.", code=ErrorCode.NOT_FOUND)
 
     # If we just deleted the active profile, fall back to another one.
     if name == config.active_profile:
@@ -89,7 +89,7 @@ def use_profile(
     if profile not in config.profiles:
         abort(
             f"Profile '{profile}' does not exist.",
-            code="not_found",
+            code=ErrorCode.NOT_FOUND,
             hint=f"Run: dm auth login --profile {profile}",
         )
 
@@ -139,7 +139,7 @@ def status() -> None:
         if not profile.is_configured:
             abort(
                 f"Profile '{config.active_profile}' is not configured.",
-                code="auth_required",
+                code=ErrorCode.AUTH_REQUIRED,
                 hint="Run: dm auth login",
             )
         profile_label = config.active_profile
