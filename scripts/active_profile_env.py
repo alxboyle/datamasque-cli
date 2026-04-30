@@ -19,7 +19,8 @@ except ImportError:
 path = os.path.expanduser("~/.config/datamasque-cli/config.toml")
 
 try:
-    data = tomllib.loads(open(path).read())
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
 except FileNotFoundError:
     sys.exit(f"No profile config at {path}. Run 'dm auth login' first.")
 

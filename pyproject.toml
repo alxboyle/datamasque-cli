@@ -99,6 +99,8 @@ ignore = [
     "S",
     "SLF001",
 ]
+# Standalone helper scripts that legitimately print to stdout for shell consumption.
+"scripts/**/*" = ["T20"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["datamasque_cli"]
