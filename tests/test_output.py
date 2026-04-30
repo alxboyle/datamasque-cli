@@ -155,9 +155,7 @@ def test_abort_emits_structured_envelope_in_agent_mode(
     assert captured.out == ""
 
 
-def test_abort_human_mode_prints_red_error(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_abort_human_mode_prints_red_error(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("DM_OUTPUT", "table")
     with pytest.raises(SystemExit):
         abort("nope", code=ErrorCode.NOT_FOUND)

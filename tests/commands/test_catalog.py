@@ -8,9 +8,7 @@ from typer.testing import CliRunner
 from datamasque_cli.main import app
 
 
-def test_catalog_compact_json_lists_every_subcommand(
-    monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-) -> None:
+def test_catalog_compact_json_lists_every_subcommand(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
     monkeypatch.setenv("DM_OUTPUT", "json")
     result = runner.invoke(app, ["catalog", "--compact"])
     assert result.exit_code == 0
@@ -37,9 +35,7 @@ def test_catalog_full_includes_options(monkeypatch: pytest.MonkeyPatch, runner: 
     assert json_flag["is_flag"] is True
 
 
-def test_catalog_human_mode_renders_indented_text(
-    monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-) -> None:
+def test_catalog_human_mode_renders_indented_text(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
     monkeypatch.setenv("DM_OUTPUT", "table")
     result = runner.invoke(app, ["catalog", "--compact"])
     assert result.exit_code == 0
