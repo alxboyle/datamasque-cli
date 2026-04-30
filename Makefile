@@ -47,7 +47,7 @@ release-patch: check
 	git commit -m "Release v$(VERSION)"
 	git tag "v$(VERSION)"
 	git push && git push --tags
-	@echo "Released v$(VERSION) — CI will publish to pypi.dtq.tools"
+	@echo "Released v$(VERSION) — CI will publish to PyPI (https://pypi.org/p/datamasque-cli)"
 
 release-minor: check
 	$(eval VERSION := $(shell python3 scripts/bump_version.py minor))
@@ -56,7 +56,7 @@ release-minor: check
 	git commit -m "Release v$(VERSION)"
 	git tag "v$(VERSION)"
 	git push && git push --tags
-	@echo "Released v$(VERSION) — CI will publish to pypi.dtq.tools"
+	@echo "Released v$(VERSION) — CI will publish to PyPI (https://pypi.org/p/datamasque-cli)"
 
 release-major: check
 	$(eval VERSION := $(shell python3 scripts/bump_version.py major))
@@ -65,4 +65,4 @@ release-major: check
 	git commit -m "Release v$(VERSION)"
 	git tag "v$(VERSION)"
 	git push && git push --tags
-	@echo "Released v$(VERSION) — CI will publish to pypi.dtq.tools"
+	@echo "Released v$(VERSION) — CI will publish to PyPI (https://pypi.org/p/datamasque-cli)"
