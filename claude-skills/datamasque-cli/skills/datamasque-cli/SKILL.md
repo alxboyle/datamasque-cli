@@ -7,9 +7,11 @@ user-invocable: true
 
 # DataMasque CLI
 
-Operate a DataMasque instance via the `dm` command-line tool. The CLI is
-designed for agents — it auto-detects when an agent is calling it, returns
-JSON, and reports errors in a structured envelope with stable codes.
+Operate a DataMasque instance via the `dm` command-line tool.
+
+`dm` is a normal human-facing CLI that adapts when an agent calls it: output
+flips to JSON automatically and errors come back as a structured envelope on
+stderr with stable exit codes. You don't have to opt in — just call commands.
 
 ## Prerequisites
 
