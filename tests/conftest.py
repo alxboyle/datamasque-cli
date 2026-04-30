@@ -11,6 +11,19 @@ from typer.testing import CliRunner
 from datamasque_cli.config import Config, Profile
 
 
+@pytest.fixture(autouse=True)
+def _force_human_output_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default tests to human-readable output mode.
+
+    Tests run under capsys so stdout is not a TTY, which would otherwise
+    trip the agent-context auto-detection in `output.is_agent_context()`.
+    Tests that exercise JSON / agent-mode behaviour override this with
+    `monkeypatch.setenv("DM_OUTPUT", "json")` (or pass `is_json=True`).
+    """
+    monkeypatch.setenv("DM_OUTPUT", "table")
+    monkeypatch.delenv("AI_AGENT", raising=False)
+
+
 @pytest.fixture()
 def runner() -> CliRunner:
     return CliRunner()

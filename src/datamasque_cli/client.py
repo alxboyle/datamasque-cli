@@ -13,7 +13,7 @@ from datamasque.client.exceptions import DataMasqueApiError, DataMasqueTransport
 from datamasque.client.models.dm_instance import DataMasqueInstanceConfig
 
 from datamasque_cli.config import Config, Profile, load_config
-from datamasque_cli.output import abort
+from datamasque_cli.output import ErrorCode, abort
 
 ENV_URL = "DATAMASQUE_URL"
 ENV_USERNAME = "DATAMASQUE_USERNAME"
@@ -52,9 +52,12 @@ def _resolve_profile(config: Config, profile_name: str | None) -> Profile:
     if not profile.is_configured:
         name = profile_name or config.active_profile
         abort(
-            f"Profile '{name}' is not configured. "
-            f"Run: dm auth login --profile {name} --url <URL> --username <USER>\n"
-            f"Or set {ENV_URL}, {ENV_USERNAME}, and {ENV_PASSWORD} environment variables."
+            f"Profile '{name}' is not configured.",
+            code=ErrorCode.AUTH_REQUIRED,
+            hint=(
+                f"Run: dm auth login --profile {name} --url <URL> --username <USER>  "
+                f"or set {ENV_URL}, {ENV_USERNAME}, and {ENV_PASSWORD}."
+            ),
         )
     return profile
 
@@ -90,9 +93,9 @@ def get_client(profile_name: str | None = None) -> DataMasqueClient:
     try:
         client.authenticate()
     except DataMasqueTransportError as e:
-        abort(_format_transport_error(profile.url, e, verify_ssl=verify_ssl))
+        abort(_format_transport_error(profile.url, e, verify_ssl=verify_ssl), code=ErrorCode.TRANSPORT_ERROR)
     except DataMasqueApiError as e:
-        abort(f"Authentication failed: {e}")
+        abort(f"Authentication failed: {e}", code=ErrorCode.AUTH_FAILED)
 
     return client
 

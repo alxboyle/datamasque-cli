@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from pathlib import Path
 
 import typer
@@ -19,7 +20,24 @@ from datamasque.client.models.connection import (
 )
 
 from datamasque_cli.client import get_client
-from datamasque_cli.output import abort, print_success, redact_sensitive_fields, render_output
+from datamasque_cli.output import ErrorCode, abort, print_success, redact_sensitive_fields, render_output
+
+
+class ConnectionType(StrEnum):
+    """User-facing names for connection backends.
+
+    These are what an operator passes to `--type` and what appears under
+    `"type"` inside a connection JSON file. The values double as keys in
+    `_CONNECTION_CLASSES` below — single source of truth.
+    """
+
+    DATABASE = "database"
+    S3 = "s3"
+    AZURE = "azure"
+    MOUNTED_SHARE = "mounted_share"
+    SNOWFLAKE = "snowflake"
+    DYNAMODB = "dynamodb"
+
 
 _FILE_CONNECTION_TYPES = (MountedShareConnectionConfig, S3ConnectionConfig, AzureConnectionConfig)
 
@@ -43,15 +61,24 @@ def _format_role(conn: ConnectionConfig) -> str:
 
 app = typer.Typer(help="Manage database and file connections.", no_args_is_help=True)
 
-# Maps the `type` field in JSON to the right config class.
-_CONNECTION_CLASSES = {
-    "database": DatabaseConnectionConfig,
-    "s3": S3ConnectionConfig,
-    "azure": AzureConnectionConfig,
-    "mounted_share": MountedShareConnectionConfig,
-    "snowflake": SnowflakeConnectionConfig,
-    "dynamodb": DynamoConnectionConfig,
+# Maps `ConnectionType` to the corresponding pydantic config class.
+_CONNECTION_CLASSES: dict[ConnectionType, type[ConnectionConfig]] = {
+    ConnectionType.DATABASE: DatabaseConnectionConfig,
+    ConnectionType.S3: S3ConnectionConfig,
+    ConnectionType.AZURE: AzureConnectionConfig,
+    ConnectionType.MOUNTED_SHARE: MountedShareConnectionConfig,
+    ConnectionType.SNOWFLAKE: SnowflakeConnectionConfig,
+    ConnectionType.DYNAMODB: DynamoConnectionConfig,
 }
+
+
+def _parse_connection_type(raw: str) -> ConnectionType:
+    """Coerce a user-supplied string into a ConnectionType, aborting on unknown values."""
+    try:
+        return ConnectionType(raw)
+    except ValueError:
+        valid = ", ".join(t.value for t in ConnectionType)
+        abort(f"Unknown connection type '{raw}'.", code=ErrorCode.INVALID_INPUT, hint=f"Valid: {valid}")
 
 
 @app.command("list")
@@ -94,7 +121,7 @@ def get_connection(
 
     match = next((c for c in connections if c.name == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code=ErrorCode.NOT_FOUND)
 
     data = redact_sensitive_fields(match.model_dump())
     render_output(data, is_json=is_json, title=f"Connection: {name}")
@@ -141,7 +168,7 @@ def create_connection(
         return
 
     if name is None or conn_type is None:
-        abort("Provide either --file or both --name and --type.")
+        abort("Provide either --file or both --name and --type.", code=ErrorCode.INVALID_INPUT)
 
     config = _build_connection_config(
         name=name,
@@ -166,14 +193,10 @@ def create_connection(
 def _create_from_file(client: DataMasqueClient, file: Path) -> None:
     """Create a connection from a JSON file."""
     data = json.loads(file.read_text())
-    conn_type = data.pop("type", "database")
+    conn_type = _parse_connection_type(data.pop("type", "database"))
 
-    if conn_type not in _CONNECTION_CLASSES:
-        valid = ", ".join(_CONNECTION_CLASSES)
-        abort(f"Unknown connection type '{conn_type}'. Valid: {valid}")
-
-    # Convert db_type string to enum for database connections
-    if conn_type == "database" and "database_type" in data:
+    # Convert db_type string to enum for database connections.
+    if conn_type is ConnectionType.DATABASE and "database_type" in data:
         data["database_type"] = DatabaseType(data["database_type"])
 
     klass = _CONNECTION_CLASSES[conn_type]
@@ -199,9 +222,14 @@ def _build_connection_config(
     bucket: str | None,
 ) -> DatabaseConnectionConfig | S3ConnectionConfig | MountedShareConnectionConfig:
     """Build a connection config from CLI flags."""
-    if conn_type == "database":
+    parsed_type = _parse_connection_type(conn_type)
+
+    if parsed_type is ConnectionType.DATABASE:
         if not all([host, port, database, user, password, db_type]):
-            abort("Database connections require: --host, --port, --database, --user, --password, --db-type")
+            abort(
+                "Database connections require: --host, --port, --database, --user, --password, --db-type",
+                code=ErrorCode.INVALID_INPUT,
+            )
         return DatabaseConnectionConfig(
             name=name,
             host=host,
@@ -213,9 +241,9 @@ def _build_connection_config(
             schema=schema,
         )
 
-    if conn_type == "mounted_share":
+    if parsed_type is ConnectionType.MOUNTED_SHARE:
         if base_directory is None:
-            abort("Mounted share connections require: --base-dir")
+            abort("Mounted share connections require: --base-dir", code=ErrorCode.INVALID_INPUT)
         return MountedShareConnectionConfig(
             name=name,
             base_directory=base_directory,
@@ -223,9 +251,9 @@ def _build_connection_config(
             is_file_mask_destination=is_destination,
         )
 
-    if conn_type == "s3":
+    if parsed_type is ConnectionType.S3:
         if base_directory is None or bucket is None:
-            abort("S3 connections require: --base-dir, --bucket")
+            abort("S3 connections require: --base-dir, --bucket", code=ErrorCode.INVALID_INPUT)
         return S3ConnectionConfig(
             name=name,
             base_directory=base_directory,
@@ -234,7 +262,10 @@ def _build_connection_config(
             is_file_mask_destination=is_destination,
         )
 
-    abort(f"Use --file for '{conn_type}' connections (too many fields for CLI flags).")
+    abort(
+        f"Use --file for '{parsed_type}' connections (too many fields for CLI flags).",
+        code=ErrorCode.INVALID_INPUT,
+    )
 
 
 @app.command("test")
@@ -252,7 +283,7 @@ def test_connection(
 
     match = next((c for c in client.list_connections() if c.name == name or str(c.id) == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code=ErrorCode.NOT_FOUND)
 
     response = client.make_request("POST", f"/api/connections/{match.id}/test/", data={})
     body = response.json() if response.content else {}
@@ -285,7 +316,7 @@ def update_connection(
 
     match = next((c for c in client.list_connections() if c.name == name or str(c.id) == name), None)
     if match is None:
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code=ErrorCode.NOT_FOUND)
 
     updates: dict[str, object] = {
         key: value
@@ -301,7 +332,7 @@ def update_connection(
         if value is not None
     }
     if not updates:
-        abort("Pass at least one field to update (e.g. --password, --host).")
+        abort("Pass at least one field to update (e.g. --password, --host).", code=ErrorCode.INVALID_INPUT)
 
     client.make_request("PATCH", f"/api/connections/{match.id}/", data=updates)
     print_success(f"Connection '{match.name}' updated: {', '.join(updates)}.")
@@ -316,7 +347,7 @@ def delete_connection(
     """Delete a connection by name."""
     client = get_client(profile)
     if not any(c.name == name for c in client.list_connections()):
-        abort(f"Connection '{name}' not found.")
+        abort(f"Connection '{name}' not found.", code=ErrorCode.NOT_FOUND)
 
     if not is_confirmed:
         typer.confirm(f"Delete connection '{name}'?", abort=True)

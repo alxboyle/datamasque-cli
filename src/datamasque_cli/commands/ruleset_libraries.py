@@ -8,7 +8,7 @@ import typer
 from datamasque.client.models.ruleset_library import RulesetLibrary
 
 from datamasque_cli.client import get_client
-from datamasque_cli.output import abort, print_success, render_output
+from datamasque_cli.output import ErrorCode, abort, print_success, render_output
 
 app = typer.Typer(help="Manage ruleset libraries.", no_args_is_help=True)
 
@@ -49,7 +49,7 @@ def get_library(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code=ErrorCode.NOT_FOUND)
 
     if is_yaml:
         typer.echo(lib.yaml)
@@ -95,7 +95,7 @@ def delete_library(
 
     client = get_client(profile)
     if client.get_ruleset_library_by_name(name, namespace) is None:
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code=ErrorCode.NOT_FOUND)
 
     if not is_confirmed:
         typer.confirm(f"Delete library '{label}'?", abort=True)
@@ -119,7 +119,7 @@ def validate_library(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code=ErrorCode.NOT_FOUND)
 
     validated = client.validate_ruleset_library(lib.id)
     status = validated.is_valid.value if validated.is_valid else "unknown"
@@ -140,7 +140,7 @@ def library_usage(
 
     if lib is None:
         label = f"{namespace}/{name}" if namespace else name
-        abort(f"Library '{label}' not found.")
+        abort(f"Library '{label}' not found.", code=ErrorCode.NOT_FOUND)
 
     rulesets = client.list_rulesets_using_library(lib.id)
 

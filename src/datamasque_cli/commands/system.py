@@ -8,7 +8,7 @@ import typer
 
 from datamasque_cli.client import get_client
 from datamasque_cli.commands.rulesets import export_bundle, import_bundle
-from datamasque_cli.output import print_json, print_success, print_warning, render_output
+from datamasque_cli.output import print_json, print_success, print_warning, render_output, should_emit_json
 
 app = typer.Typer(help="System administration commands.", no_args_is_help=True)
 
@@ -22,7 +22,7 @@ def health(
     client = get_client(profile)
     client.healthcheck()
 
-    if is_json:
+    if should_emit_json(is_json):
         print_json({"status": "healthy"})
     else:
         print_success("Instance is healthy.")

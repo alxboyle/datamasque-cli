@@ -6,7 +6,7 @@ import typer
 from datamasque.client.models.user import User, UserRole
 
 from datamasque_cli.client import get_client
-from datamasque_cli.output import abort, print_success, render_output
+from datamasque_cli.output import ErrorCode, abort, print_success, render_output
 
 app = typer.Typer(help="Manage users.", no_args_is_help=True)
 
@@ -60,7 +60,7 @@ def delete_user(
     users = client.list_users()
 
     if not any(u.username == username for u in users):
-        abort(f"User '{username}' not found.")
+        abort(f"User '{username}' not found.", code=ErrorCode.NOT_FOUND)
 
     if not is_confirmed:
         typer.confirm(f"Delete user '{username}'?", abort=True)
@@ -80,7 +80,7 @@ def reset_password(
 
     match = next((u for u in users if u.username == username), None)
     if match is None:
-        abort(f"User '{username}' not found.")
+        abort(f"User '{username}' not found.", code=ErrorCode.NOT_FOUND)
 
     new_password = client.reset_password_for_user(match)
     print_success(f"Password reset for '{username}'. New temporary password: {new_password}")

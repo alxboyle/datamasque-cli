@@ -239,6 +239,56 @@ STATUS=$(dm run status 42 --json | jq -r '.status')
 dm rulesets get myruleset --json | jq -r '.yaml' > ruleset.yaml
 ```
 
+JSON is also emitted automatically when:
+
+- `stdout` is not a TTY (piped or captured),
+- `DM_OUTPUT=json` is set in the environment, or
+- a vendor-neutral `AI_AGENT` env var is set (e.g. by Claude Code).
+
+Set `DM_OUTPUT=table` to force human-readable output regardless of context.
+
+## Agent / scripting interface
+
+For programmatic use (CI, AI coding agents, shell scripts), the CLI exposes
+a discovery command and a stable error contract.
+
+### Command catalog
+
+`dm catalog` dumps every visible subcommand as JSON so an agent can introspect
+the surface without paging through `--help` screens:
+
+```console
+dm catalog --compact   # ~1.4kB — {path, help} per command
+dm catalog             # full — also includes options and arguments
+```
+
+### Structured errors
+
+In agent mode, errors are emitted as a JSON envelope on stderr (stdout stays
+empty on failure):
+
+```json
+{"error": {"code": "not_found", "message": "Connection 'foo' not found.", "hint": "Run dm connections list."}}
+```
+
+### Exit codes
+
+| Code | Meaning           | When                                           |
+| ---: | ----------------- | ---------------------------------------------- |
+|    0 | success           | command completed                              |
+|    1 | error             | unclassified failure                           |
+|    2 | usage error       | unknown flag or missing argument (typer/click) |
+|    3 | not_found         | resource lookup failed                         |
+|    4 | invalid_input     | argument values rejected                       |
+|    5 | ambiguous         | name matched multiple resources                |
+|    6 | auth_required     | no credentials configured                      |
+|    7 | auth_failed       | credentials rejected by server                 |
+|    8 | conflict          | operation rejected by server state             |
+|    9 | transport_error   | network or TLS failure                         |
+
+Exit codes are stable across minor versions. The `error.code` string in the
+JSON envelope mirrors these names.
+
 ## Documentation
 
 Documentation for the DataMasque product,

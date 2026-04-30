@@ -11,7 +11,7 @@ from datamasque.client.models.connection import ConnectionId
 from datamasque.client.models.discovery import SchemaDiscoveryRequest
 
 from datamasque_cli.client import get_client
-from datamasque_cli.output import abort, print_json, print_success, render_output
+from datamasque_cli.output import ErrorCode, abort, print_json, print_success, render_output, should_emit_json
 
 app = typer.Typer(help="Data discovery operations.", no_args_is_help=True)
 
@@ -29,7 +29,7 @@ def _resolve_connection_id(client: DataMasqueClient, name_or_id: str) -> str:
     """Resolve a connection name or ID to its UUID string."""
     match = next((c for c in client.list_connections() if c.name == name_or_id or str(c.id) == name_or_id), None)
     if match is None:
-        abort(f"Connection '{name_or_id}' not found.")
+        abort(f"Connection '{name_or_id}' not found.", code=ErrorCode.NOT_FOUND)
     return str(match.id)
 
 
@@ -130,7 +130,7 @@ def file_discovery_report(
         print_success(f"File discovery report written to {output}")
         return
 
-    if is_json:
+    if should_emit_json(is_json):
         print_json(report)
     else:
         render_output(report, is_json=False, title=f"File Discovery: Run {run_id}")
