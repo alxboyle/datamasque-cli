@@ -11,7 +11,7 @@ import json
 import sys
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from datamasque.client.exceptions import DataMasqueApiError
@@ -23,9 +23,53 @@ from datamasque.client.models.ifm import (
 )
 
 from datamasque_cli.client import get_ifm_client
-from datamasque_cli.output import abort, print_error, print_json, print_success, render_output
+from datamasque_cli.output import ErrorCode, abort, print_error, print_json, print_success, render_output
 
 app = typer.Typer(help="Manage in-flight-masking (IFM) ruleset plans and execute masks.", no_args_is_help=True)
+
+
+# IFM service maps HTTP statuses to the CLI's stable `ErrorCode` taxonomy so
+# agents and scripts get the right exit code (see "Exit codes" in `README.md`).
+# Anything not listed falls through to `ErrorCode.ERROR` (exit 1).
+_STATUS_TO_ERROR_CODE: dict[int, ErrorCode] = {
+    400: ErrorCode.INVALID_INPUT,
+    404: ErrorCode.NOT_FOUND,
+    409: ErrorCode.CONFLICT,
+    422: ErrorCode.INVALID_INPUT,
+}
+
+
+def _server_error_detail(exc: DataMasqueApiError) -> str | None:
+    """Pull a human-readable error string from the IFM response body, if present.
+
+    The IFM service returns `{"error": "..."}`;
+    FastAPI validation errors come back as `{"detail": ...}`.
+    Falls through to `None` if the body is missing or not parseable.
+    """
+    try:
+        body = exc.response.json()
+    except (ValueError, AttributeError):
+        return None
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, str):
+            return error
+        if "detail" in body:
+            return str(body["detail"])
+    return None
+
+
+def _abort_api_error(prefix: str, exc: DataMasqueApiError) -> NoReturn:
+    """Map an `DataMasqueApiError` to the right `ErrorCode` and surface the body.
+
+    The default `str(exc)` only includes the HTTP status,
+    so the actual server message is hidden without this.
+    """
+    status_code = getattr(exc.response, "status_code", None)
+    code = _STATUS_TO_ERROR_CODE.get(status_code, ErrorCode.ERROR) if isinstance(status_code, int) else ErrorCode.ERROR
+    detail = _server_error_detail(exc)
+    message = f"{prefix}: {detail}" if detail else f"{prefix}: {exc}"
+    abort(message, code=code)
 
 
 class LogLevel(StrEnum):
@@ -54,10 +98,10 @@ def _load_mask_input(data: str) -> list[Any]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        abort(f"Failed to parse mask input as JSON: {exc}")
+        abort(f"Failed to parse mask input as JSON: {exc}", code=ErrorCode.INVALID_INPUT)
 
     if not isinstance(parsed, list):
-        abort("Mask input must be a JSON list (array) of records.")
+        abort("Mask input must be a JSON list (array) of records.", code=ErrorCode.INVALID_INPUT)
     return parsed
 
 
@@ -71,7 +115,7 @@ def list_plans(
     try:
         plans = client.list_ruleset_plans()
     except DataMasqueApiError as exc:
-        abort(f"Failed to list IFM ruleset plans: {exc}")
+        _abort_api_error("Failed to list IFM ruleset plans", exc)
 
     data = [
         {
@@ -104,7 +148,7 @@ def get_plan(
     try:
         plan = client.get_ruleset_plan(name)
     except DataMasqueApiError as exc:
-        abort(f"Failed to get IFM ruleset plan '{name}': {exc}")
+        _abort_api_error(f"Failed to get IFM ruleset plan '{name}'", exc)
 
     if is_yaml:
         if plan.ruleset_yaml is None:
@@ -151,7 +195,7 @@ def create_plan(
     try:
         created = client.create_ruleset_plan(request)
     except DataMasqueApiError as exc:
-        abort(f"Failed to create IFM ruleset plan: {exc}")
+        _abort_api_error("Failed to create IFM ruleset plan", exc)
 
     print_success(f"IFM ruleset plan '{created.name}' created (serial {created.serial}).")
     if created.url:
@@ -170,7 +214,10 @@ def update_plan(
 ) -> None:
     """Update an IFM ruleset plan: only fields you pass are sent."""
     if file is None and enabled is None and log_level is None:
-        abort("Pass at least one of --file, --enabled/--disabled, or --log-level.")
+        abort(
+            "Pass at least one of --file, --enabled/--disabled, or --log-level.",
+            code=ErrorCode.INVALID_INPUT,
+        )
 
     client = get_ifm_client(profile)
     request = RulesetPlanPartialUpdateRequest(
@@ -180,7 +227,7 @@ def update_plan(
     try:
         updated = client.patch_ruleset_plan(name, request)
     except DataMasqueApiError as exc:
-        abort(f"Failed to update IFM ruleset plan: {exc}")
+        _abort_api_error(f"Failed to update IFM ruleset plan '{name}'", exc)
 
     print_success(f"IFM ruleset plan '{name}' updated (serial {updated.serial}).")
 
@@ -199,7 +246,7 @@ def delete_plan(
     try:
         client.delete_ruleset_plan(name)
     except DataMasqueApiError as exc:
-        abort(f"Failed to delete IFM ruleset plan: {exc}")
+        _abort_api_error(f"Failed to delete IFM ruleset plan '{name}'", exc)
 
     print_success(f"IFM ruleset plan '{name}' deleted.")
 
@@ -242,7 +289,7 @@ def mask(
     try:
         result = client.mask(name, request)
     except DataMasqueApiError as exc:
-        abort(f"Mask request failed: {exc}")
+        _abort_api_error("Mask request failed", exc)
 
     if not result.success:
         print_error("Mask failed.")
@@ -267,7 +314,7 @@ def verify_token(
     try:
         info = client.verify_token()
     except DataMasqueApiError as exc:
-        abort(f"Failed to verify IFM token: {exc}")
+        _abort_api_error("Failed to verify IFM token", exc)
     if is_json:
         print_json({"scopes": info.scopes})
         return

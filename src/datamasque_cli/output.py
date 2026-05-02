@@ -20,6 +20,7 @@ from typing import Any, NoReturn
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
 
 _DM_THEME = Theme(
@@ -124,6 +125,21 @@ def print_json(data: object) -> None:
     typer.echo(json.dumps(data, indent=2, default=str))
 
 
+def _cell(value: object) -> Text:
+    """Coerce a cell value into a `Text` so Rich treats it literally.
+
+    Without this, square brackets in YAML inline lists (e.g. `path: [a, b]`)
+    are parsed by Rich as console markup tags and silently dropped from the
+    rendered cell. `Text` instances pass through unchanged so callers that
+    *want* styling (see `style_status`) still work.
+    """
+    if value is None:
+        return Text("")
+    if isinstance(value, Text):
+        return value
+    return Text(str(value))
+
+
 def print_table(
     columns: list[str],
     rows: list[list[Any]],
@@ -135,7 +151,7 @@ def print_table(
         # rather than silently ellipsizing them, so IDs stay copyable in narrow terminals.
         table.add_column(col, overflow="fold")
     for row in rows:
-        table.add_row(*[str(v) if v is not None else "" for v in row])
+        table.add_row(*[_cell(v) for v in row])
     stdout_console.print(table)
 
 
@@ -145,7 +161,7 @@ def print_kv(data: dict[str, Any], title: str | None = None) -> None:
     table.add_column("Key", style="bold")
     table.add_column("Value", overflow="fold")
     for key, value in data.items():
-        table.add_row(key, str(value) if value is not None else "")
+        table.add_row(key, _cell(value))
     stdout_console.print(table)
 
 
@@ -171,10 +187,14 @@ def print_info(message: str) -> None:
     console.print(f"[dim]{message}[/dim]")
 
 
-def style_status(status: str) -> str:
-    """Wrap a run status string in the appropriate colour tag."""
-    style_name = f"status.{status}"
-    return f"[{style_name}]{status}[/{style_name}]"
+def style_status(status: str) -> Text:
+    """Wrap a run status string in the appropriate colour tag.
+
+    Returns a `Text` (not a markup string) so it passes through `print_table`
+    and `print_kv` unchanged. Returning a raw markup string would be re-escaped
+    by `_cell` and lose its colour.
+    """
+    return Text(status, style=f"status.{status}")
 
 
 def render_output(

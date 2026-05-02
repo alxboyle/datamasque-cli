@@ -171,7 +171,7 @@ def test_update_aborts_when_no_fields_provided(mock_get_client: MagicMock, runne
 
     result = runner.invoke(app, ["ifm", "update", "p1"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 4
     client.patch_ruleset_plan.assert_not_called()
 
 
@@ -280,15 +280,35 @@ def test_verify_token_table_lists_each_scope(mock_get_client: MagicMock, runner:
     assert "ifm/rules:list" in result.stdout
 
 
+def _flat(text: str) -> str:
+    """Collapse whitespace so assertions survive rich's terminal wrapping."""
+    return " ".join(text.split())
+
+
+def _api_error(message: str, *, status_code: int, body: object | str | None = None) -> DataMasqueApiError:
+    response = MagicMock()
+    response.status_code = status_code
+    if isinstance(body, (dict, list)):
+        response.json.return_value = body
+        response.text = json.dumps(body)
+    elif isinstance(body, str):
+        response.json.side_effect = ValueError("not json")
+        response.text = body
+    else:
+        response.json.side_effect = ValueError("no body")
+        response.text = ""
+    return DataMasqueApiError(message, response=response)
+
+
 @patch(f"{MODULE}.get_ifm_client")
 def test_list_aborts_on_api_error(mock_get_client: MagicMock, runner: CliRunner) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
-    client.list_ruleset_plans.side_effect = DataMasqueApiError("boom", response=MagicMock())
+    client.list_ruleset_plans.side_effect = _api_error("boom", status_code=500)
 
     result = runner.invoke(app, ["ifm", "list"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "Failed to list IFM ruleset plans" in result.stderr
 
 
@@ -296,11 +316,11 @@ def test_list_aborts_on_api_error(mock_get_client: MagicMock, runner: CliRunner)
 def test_get_aborts_on_api_error(mock_get_client: MagicMock, runner: CliRunner) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
-    client.get_ruleset_plan.side_effect = DataMasqueApiError("boom", response=MagicMock())
+    client.get_ruleset_plan.side_effect = _api_error("boom", status_code=500)
 
     result = runner.invoke(app, ["ifm", "get", "p1"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "Failed to get IFM ruleset plan 'p1'" in result.stderr
 
 
@@ -308,12 +328,145 @@ def test_get_aborts_on_api_error(mock_get_client: MagicMock, runner: CliRunner) 
 def test_verify_token_aborts_on_api_error(mock_get_client: MagicMock, runner: CliRunner) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
-    client.verify_token.side_effect = DataMasqueApiError("boom", response=MagicMock())
+    client.verify_token.side_effect = _api_error("boom", status_code=500)
 
     result = runner.invoke(app, ["ifm", "verify-token"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "Failed to verify IFM token" in result.stderr
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_get_404_exits_with_not_found_code(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.get_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=404,
+        body={"error": "Ruleset plan 'p1' not found."},
+    )
+
+    result = runner.invoke(app, ["ifm", "get", "p1"])
+
+    assert result.exit_code == 3
+    assert "Ruleset plan 'p1' not found." in result.stderr
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_create_400_surfaces_server_error_body(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.create_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=400,
+        body={"error": "Invalid ruleset YAML: unknown mask type 'from_invalid'."},
+    )
+
+    yaml_file = tmp_path / "rs.yaml"
+    yaml_file.write_text("tasks: []\n")
+
+    result = runner.invoke(app, ["ifm", "create", "--name", "smoke", "--file", str(yaml_file)])
+
+    assert result.exit_code == 4
+    assert "unknown mask type 'from_invalid'" in _flat(result.stderr)
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_mask_400_surfaces_server_error_body(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.mask.side_effect = _api_error(
+        "boom",
+        status_code=400,
+        body={"error": "Invalid masking parameters: Run secret length must be at least 20 characters."},
+    )
+
+    data_file = tmp_path / "in.json"
+    data_file.write_text("[]")
+
+    result = runner.invoke(app, ["ifm", "mask", "p1", "--data", str(data_file), "--run-secret", "short"])
+
+    assert result.exit_code == 4
+    assert "Run secret length must be at least 20 characters." in _flat(result.stderr)
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_update_404_exits_with_not_found_code(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.patch_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=404,
+        body={"error": "Ruleset plan 'p1' not found."},
+    )
+
+    result = runner.invoke(app, ["ifm", "update", "p1", "--enabled"])
+
+    assert result.exit_code == 3
+    assert "Ruleset plan 'p1' not found." in result.stderr
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_delete_404_exits_with_not_found_code(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.delete_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=404,
+        body={"error": "Ruleset plan 'p1' not found."},
+    )
+
+    result = runner.invoke(app, ["ifm", "delete", "p1", "--yes"])
+
+    assert result.exit_code == 3
+    assert "Ruleset plan 'p1' not found." in result.stderr
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_create_409_exits_with_conflict_code(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.create_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=409,
+        body={"error": "A ruleset plan named 'smoke' already exists."},
+    )
+
+    yaml_file = tmp_path / "rs.yaml"
+    yaml_file.write_text("tasks: []\n")
+
+    result = runner.invoke(app, ["ifm", "create", "--name", "smoke", "--file", str(yaml_file)])
+
+    assert result.exit_code == 8
+    assert "already exists" in _flat(result.stderr)
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_get_404_falls_back_when_body_not_json(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.get_ruleset_plan.side_effect = _api_error("boom", status_code=404, body="<html>not found</html>")
+
+    result = runner.invoke(app, ["ifm", "get", "p1"])
+
+    assert result.exit_code == 3
+    assert "Failed to get IFM ruleset plan 'p1'" in result.stderr
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_get_extracts_fastapi_detail_field(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.get_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=400,
+        body={"detail": "validation failed on field 'name'"},
+    )
+
+    result = runner.invoke(app, ["ifm", "get", "p1"])
+
+    assert result.exit_code == 4
+    assert "validation failed on field 'name'" in result.stderr
 
 
 @patch(f"{MODULE}.get_ifm_client")
