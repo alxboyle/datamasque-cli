@@ -256,6 +256,21 @@ def test_mask_rejects_non_list_input(mock_get_client: MagicMock, runner: CliRunn
 
 
 @patch(f"{MODULE}.get_ifm_client")
+def test_mask_aborts_when_data_file_missing(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+
+    missing = tmp_path / "does-not-exist.json"
+
+    result = runner.invoke(app, ["ifm", "mask", "p1", "--data", str(missing)])
+
+    assert result.exit_code != 0
+    assert "Could not read mask input file" in result.stderr
+    assert "Traceback" not in result.stderr
+    client.mask.assert_not_called()
+
+
+@patch(f"{MODULE}.get_ifm_client")
 def test_verify_token_lists_scopes(mock_get_client: MagicMock, runner: CliRunner) -> None:
     client = MagicMock()
     mock_get_client.return_value = client

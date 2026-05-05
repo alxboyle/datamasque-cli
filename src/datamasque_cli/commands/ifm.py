@@ -93,7 +93,11 @@ def _load_mask_input(data: str) -> list[Any]:
     if data == "-":
         raw = sys.stdin.read()
     else:
-        raw = Path(data).read_text()
+        try:
+            raw = Path(data).read_text()
+        except OSError as exc:
+            code = ErrorCode.NOT_FOUND if isinstance(exc, FileNotFoundError) else ErrorCode.INVALID_INPUT
+            abort(f"Could not read mask input file '{data}': {exc.strerror or exc}", code=code)
 
     try:
         parsed = json.loads(raw)
