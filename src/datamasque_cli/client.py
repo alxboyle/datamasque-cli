@@ -54,10 +54,7 @@ def _resolve_profile(config: Config, profile_name: str | None) -> Profile:
         abort(
             f"Profile '{name}' is not configured.",
             code=ErrorCode.AUTH_REQUIRED,
-            hint=(
-                f"Run: dm auth login --profile {name} --url <URL> --username <USER>  "
-                f"or set {ENV_URL}, {ENV_USERNAME}, and {ENV_PASSWORD}."
-            ),
+            hint=(f"Run: dm auth login --profile {name} or set {ENV_URL}, {ENV_USERNAME}, and {ENV_PASSWORD}."),
         )
     return profile
 
