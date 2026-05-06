@@ -39,11 +39,30 @@ _STATUS_TO_ERROR_CODE: dict[int, ErrorCode] = {
 }
 
 
+def _format_pydantic_errors(errors: list[Any]) -> str:
+    """Flatten FastAPI's `detail` list (Pydantic `e.errors()`) into a readable string.
+
+    Each entry looks like `{"loc": [...], "msg": "...", "type": "..."}`;
+    we render `field.path: message` per entry, joined with `; `.
+    Entries that don't match the shape fall back to `str(entry)`.
+    """
+    parts: list[str] = []
+    for entry in errors:
+        if isinstance(entry, dict) and "msg" in entry:
+            loc = entry.get("loc") or []
+            location = ".".join(str(part) for part in loc if part != "body") if isinstance(loc, (list, tuple)) else ""
+            parts.append(f"{location}: {entry['msg']}" if location else str(entry["msg"]))
+        else:
+            parts.append(str(entry))
+    return "; ".join(parts)
+
+
 def _server_error_detail(exc: DataMasqueApiError) -> str | None:
     """Pull a human-readable error string from the IFM response body, if present.
 
     The IFM service returns `{"error": "..."}`;
-    FastAPI validation errors come back as `{"detail": ...}`.
+    FastAPI validation errors come back as `{"detail": ...}`,
+    where `detail` is either a string or a list of Pydantic error dicts (422s).
     Falls through to `None` if the body is missing or not parseable.
     """
     try:
@@ -55,7 +74,12 @@ def _server_error_detail(exc: DataMasqueApiError) -> str | None:
         if isinstance(error, str):
             return error
         if "detail" in body:
-            return str(body["detail"])
+            detail = body["detail"]
+            if isinstance(detail, str):
+                return detail
+            if isinstance(detail, list):
+                return _format_pydantic_errors(detail)
+            return str(detail)
     return None
 
 

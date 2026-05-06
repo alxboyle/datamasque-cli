@@ -485,6 +485,71 @@ def test_get_extracts_fastapi_detail_field(mock_get_client: MagicMock, runner: C
 
 
 @patch(f"{MODULE}.get_ifm_client")
+def test_mask_ndjson_emits_one_record_per_line(
+    mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path
+) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.mask.return_value = SimpleNamespace(
+        success=True,
+        data=[{"id": 1, "email": "***"}, {"id": 2, "email": "***"}],
+        logs=[],
+    )
+
+    data_file = tmp_path / "in.json"
+    data_file.write_text(json.dumps([{"id": 1}, {"id": 2}]))
+
+    result = runner.invoke(app, ["ifm", "mask", "p1", "--data", str(data_file), "--no-json"])
+
+    assert result.exit_code == 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert [json.loads(line) for line in lines] == [
+        {"id": 1, "email": "***"},
+        {"id": 2, "email": "***"},
+    ]
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_mask_ndjson_with_no_data_prints_nothing(
+    mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path
+) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.mask.return_value = SimpleNamespace(success=True, data=None, logs=[])
+
+    data_file = tmp_path / "in.json"
+    data_file.write_text("[]")
+
+    result = runner.invoke(app, ["ifm", "mask", "p1", "--data", str(data_file), "--no-json"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == ""
+
+
+@patch(f"{MODULE}.get_ifm_client")
+def test_get_formats_pydantic_422_detail_list(mock_get_client: MagicMock, runner: CliRunner) -> None:
+    client = MagicMock()
+    mock_get_client.return_value = client
+    client.get_ruleset_plan.side_effect = _api_error(
+        "boom",
+        status_code=422,
+        body={
+            "detail": [
+                {"loc": ["body", "name"], "msg": "field required", "type": "value_error.missing"},
+                {"loc": ["body", "options", "log_level"], "msg": "invalid choice", "type": "value_error"},
+            ]
+        },
+    )
+
+    result = runner.invoke(app, ["ifm", "get", "p1"])
+
+    assert result.exit_code == 4
+    flat = _flat(result.stderr)
+    assert "name: field required" in flat
+    assert "options.log_level: invalid choice" in flat
+
+
+@patch(f"{MODULE}.get_ifm_client")
 def test_mask_emits_empty_array_when_data_none(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
