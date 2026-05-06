@@ -485,9 +485,7 @@ def test_get_extracts_fastapi_detail_field(mock_get_client: MagicMock, runner: C
 
 
 @patch(f"{MODULE}.get_ifm_client")
-def test_mask_ndjson_emits_one_record_per_line(
-    mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path
-) -> None:
+def test_mask_ndjson_emits_one_record_per_line(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
     client.mask.return_value = SimpleNamespace(
@@ -510,9 +508,7 @@ def test_mask_ndjson_emits_one_record_per_line(
 
 
 @patch(f"{MODULE}.get_ifm_client")
-def test_mask_ndjson_with_no_data_prints_nothing(
-    mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path
-) -> None:
+def test_mask_ndjson_with_no_data_prints_nothing(mock_get_client: MagicMock, runner: CliRunner, tmp_path: Path) -> None:
     client = MagicMock()
     mock_get_client.return_value = client
     client.mask.return_value = SimpleNamespace(success=True, data=None, logs=[])
